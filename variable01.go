@@ -25,6 +25,7 @@ func main() {
 
 	// 5. A variable without an initial value receives its type's zero value.
 	var score int
+
 	var message string
 	var passed bool
 	fmt.Printf("零值：score=%d, message=%q, passed=%t\n", score, message, passed)
