@@ -22,6 +22,127 @@
 - Go 工具链、模块、测试、调试、格式化及常见工程规范。
 - 从基础语法逐步过渡到 HTTP、数据库、缓存、鉴权等后端知识。
 
+## 长期项目目标
+
+用户计划在掌握 Go 基础后，逐步完成一个电商学习项目。目标架构是：
+
+- Vue 3 + TypeScript 前端，包含用户端、管理后台和 AI 对话界面。
+- Go 主后端负责网关、用户、商品、订单、库存及秒杀限流等核心业务。
+- Python AI 子服务负责智能客服、AI 选品推荐和 RAG 知识库检索。
+- 前端通过 HTTP 调用 Go 服务，通过 SSE 接收 AI 流式响应。
+- Go 与 Python 服务在学习初期可使用 HTTP + JSON，理解服务边界后再学习 gRPC。
+- 数据层按学习进度逐步引入 PostgreSQL、Redis 和消息队列；RAG 阶段在 PostgreSQL 中启用 `pgvector`。
+
+该架构是长期方向，不代表当前阶段要一次性搭建全部组件。AI 应把最终架构拆成可以独立运行、验证和理解的小阶段，避免为了追求“完整技术栈”而跳过基础知识。
+
+## 目标技术栈与选型边界
+
+### 前端
+
+- Vue 3（Composition API）+ TypeScript + Vite。
+- Pinia、Vue Router、Axios。
+- 用户端可在 Element Plus 与 Naive UI 中按实际需求选择；管理后台优先考虑 Element Plus。
+- Tailwind CSS 是可选项，不应与组件库一起无目的堆叠。
+- AI 对话界面需要支持 SSE 流式渲染；只有明确需要双向实时通信时才考虑 WebSocket。
+
+### Go 主后端
+
+- 当前学习阶段优先使用 Go 标准库理解 HTTP、JSON、错误处理、并发和测试。
+- 进入 Web 项目阶段后，优先从 Gin 开始；只有在确实进入微服务阶段并理解其额外成本后，再评估 Go-Zero。
+- 对外接口使用 RESTful API；内部服务拆分后再引入 gRPC。
+- PostgreSQL 作为统一关系型数据库。先学习 `database/sql` 的基本模型和 PostgreSQL 驱动，再评估 GORM 及其 PostgreSQL driver，不能只会调用 ORM 而不理解 SQL、事务、索引和连接池。
+- Redis 用于缓存、限流计数和后续的分布式协调；引入前先理解缓存一致性、过期策略及故障降级。
+- JWT 用于鉴权学习，但必须同时讲清签名不等于加密、过期与刷新、撤销困难等边界。
+- 消息队列在完成同步订单流程后再引入。Kafka 与 RabbitMQ 需要根据事件流、吞吐量、路由能力和运维成本选择，不默认同时使用。
+- Etcd 或 Consul、Nacos、Sentinel-Go、Kubernetes、Prometheus 和 Grafana 都属于后续微服务或部署阶段，不在 Go 基础阶段提前引入。
+- 日志可逐步引入 Zap；性能分析优先学习 Go 官方 `pprof`。
+- 部署演进顺序优先为：本地运行、Docker、CI/CD，再根据实际规模评估 Kubernetes。
+
+### Python AI 子服务
+
+- 使用 Python + FastAPI 构建独立 AI 服务，不把 AI 编排逻辑混入 Go 核心业务层。
+- 先完成一次直接的模型 API 调用和流式输出，再根据复杂度引入 LangChain；只有多轮状态机或 Agent 流程确有需要时再引入 LangGraph。
+- 模型供应商保持可替换，可选择 OpenAI API 或一个国内模型完成首个版本。
+- RAG 使用 PostgreSQL 的 `pgvector` 扩展，优先复用现有数据库能力，避免在学习阶段额外维护 Chroma 或 Milvus。
+- Tool Calling 通过受控的 Go 业务接口查询商品、库存或订单，不能让模型直接访问核心数据库。
+- 会话状态可从内存开始；需要持久化时，可使用 LangGraph checkpoint 并存入独立的 PostgreSQL Schema。
+
+### PostgreSQL 统一数据层
+
+- Go 与 Python 可以共用一套 PostgreSQL 实例，以减少学习和部署阶段的基础设施数量。
+- 业务表与 AI 数据应拆分 Schema：Go 服务拥有用户、商品、库存和订单等业务 Schema；Python AI 服务拥有向量、文档切片和会话 checkpoint 等 AI Schema。
+- `pgvector` 用于存储商品描述、FAQ 等 embedding，并支持 RAG 相似度检索；引入时必须同时学习向量维度、距离度量、索引类型和召回质量评估。
+- 共用实例不等于允许两个服务随意读写彼此的表。商品、库存和订单等业务事实仍由 Go 服务负责，Python 应优先通过 Go API 或 Tool Calling 获取。
+- 共用 PostgreSQL 也不自动提供跨服务原子事务。涉及 Go 与 Python 的跨服务一致性时，仍需使用明确的 API、事件、幂等或补偿机制。
+- 学习或小型部署阶段可以共用实例；当负载、权限、故障隔离或扩缩容需求出现后，再评估拆分物理数据库。
+
+### 数据库决策与迁移边界
+
+- 当前项目明确选择 PostgreSQL + `pgvector`，该方案同时服务 Go 电商业务和 Python RAG 学习，不把 MySQL 作为需要同时兼容的第二数据库。
+- 不应因为未来可能迁移到 MySQL，就在当前阶段放弃 PostgreSQL 的 `pgvector`、`JSONB` 等合适能力，或提前设计复杂的数据库无关抽象。
+- PostgreSQL 迁移到 MySQL 在技术上可行，但不是只更换连接驱动。普通表和基础 CRUD 的迁移通常可控；数据库专属类型、函数、索引、锁、事务行为和原生 SQL 必须逐项评估和改写。
+- GORM 可以减少部分普通 CRUD 差异，但不能消除 PostgreSQL 与 MySQL 在字段类型、索引、SQL 方言、事务语义和扩展能力上的差异。
+- `pgvector` 数据不能假定可以直接迁移到 MySQL。若未来确需迁移，AI 向量检索可能继续保留在 PostgreSQL，或迁移到经过重新选型的专用向量数据库。
+- 为降低未来迁移和维护成本，数据库访问应集中在 repository/data-access 层，PostgreSQL 专属 SQL 不应散落在 HTTP handler 或核心业务逻辑中。
+- 数据库结构变更应使用可版本化的 migration 文件；核心查询、事务和 repository 应有集成测试，不能只依赖 GORM 自动迁移。
+- 只有出现明确的组织要求、托管环境限制、成本问题或业务收益时，才启动 PostgreSQL 到 MySQL 的迁移评估。假设性的未来需求不是当前迁移或双数据库兼容的理由。
+
+## 分阶段学习路线
+
+### 阶段 1：Go 语言基础（当前阶段）
+
+- 变量、常量、基础类型、数组、切片、map、流程控制和函数。
+- 指针、结构体、方法、接口、错误处理、包与 Go Modules。
+- goroutine、channel、context、互斥锁及基础并发安全。
+- `go run`、`go test`、`gofmt`、`go vet`、调试和基准测试。
+- 当前目录优先保留小而独立、可以直接运行的示例，不提前改造成电商工程。
+
+### 阶段 2：单体电商后端
+
+- 先用标准库理解 HTTP，再使用 Gin 构建 RESTful API。
+- 从内存数据开始实现商品 CRUD，再接入 PostgreSQL。
+- 学习 SQL、事务、索引、连接池后，再使用 GORM 对比实现。
+- 加入用户注册、登录、密码哈希、JWT 鉴权、商品和订单基本流程。
+- 接入 Redis 做商品缓存或简单限流，但保留无 Redis 时的可理解路径。
+
+### 阶段 3：工程化与并发业务
+
+- 增加分层、配置、Zap 日志、参数校验、统一错误响应和完整测试。
+- 学习库存扣减、事务一致性、幂等、超卖问题和并发安全。
+- 实现一个可压测的秒杀练习，再使用 `pprof` 定位性能问题。
+- 使用 Docker 运行 Go、PostgreSQL 和 Redis，并加入基础 CI。
+
+### 阶段 4：服务拆分
+
+- 在单体边界清晰、测试充分后，再拆分用户、商品和订单服务。
+- 学习 protobuf 和 gRPC，明确超时、重试、幂等及链路故障传播。
+- 同步订单流程稳定后，再选择 Kafka 或 RabbitMQ 实现异步订单事件。
+- 服务注册发现、配置中心、限流熔断和监控按实际问题逐项引入，不能只做技术名词拼装。
+
+### 阶段 5：AI 子服务与联调
+
+- 使用 FastAPI 完成独立问答接口和 SSE 流式响应。
+- 在 PostgreSQL 中启用 `pgvector`，实现小型电商知识库 RAG，并对检索结果进行可验证的评估。
+- 将向量数据和 LangGraph checkpoint 放入独立 AI Schema，不直接修改 Go 管理的业务表。
+- 使用 Tool Calling 调用 Go 暴露的只读商品或订单查询接口。
+- 先通过 HTTP + JSON 完成 Go/Python 联调，再把合适的内部接口迁移到 gRPC。
+- 前端完成聊天组件、流式渲染、错误状态、取消请求和重连处理。
+
+### 阶段 6：部署与可观测性
+
+- 完成 Docker 化、CI/CD、结构化日志和基础指标。
+- 根据部署复杂度和真实需求评估 Kubernetes，而不是将其作为项目完成的必要条件。
+- 在多服务运行后再接入 Prometheus + Grafana，并围绕延迟、错误率、吞吐量和资源使用建立指标。
+
+## 学习路线执行规则
+
+- 当前问题属于哪个阶段，就优先解决该阶段的核心知识，不提前引入后续阶段的复杂组件。
+- 每次引入新技术前，先说明它解决的具体问题、标准库或现有方案为何不足、引入成本以及暂不使用它的替代方案。
+- 每个阶段至少产出一个可运行的小项目或纵向功能，再进入下一阶段。
+- 优先完成“前端 -> Go API -> PostgreSQL”的最小闭环，再增加 Redis、消息队列、微服务和 AI。
+- AI 功能应通过明确接口依赖 Go 业务服务，Go 仍是用户、商品、订单、库存等业务事实的唯一权威来源。
+- 技术选型不是永久锁定，但当前阶段应稳定执行已确认的 PostgreSQL + `pgvector` 方案。Gin/Go-Zero、Kafka/RabbitMQ、Etcd/Consul，以及 PostgreSQL 单实例是否需要拆分，应在对应阶段根据真实需求重新评估。
+
 ## 回答原则
 
 1. 默认使用简体中文，首次出现重要英文术语时保留英文，例如“并发（concurrency）”。
