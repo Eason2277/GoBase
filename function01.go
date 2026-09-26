@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // 业务场景：订单结算
 // 商城满99就可以免去运费，不满的话，加8元运费，现在又两个订单要算实付金额
@@ -16,16 +19,16 @@ func finalPrice(price int, quantity int) int {
 }
 
 // 业务升级了，之前上写死价格
-func getPrice(name string) (int, bool) {
+func getPrice(name string) (int, error) {
 	if name == "苹果" {
-		return 5, true
+		return 5, nil
 	}
 
 	if name == "牛奶" {
-		return 12, true
+		return 12, nil
 	}
 
-	return 0, false
+	return 0, errors.New("商品不存在")
 }
 
 func main() {
@@ -36,10 +39,10 @@ func main() {
 	//
 	//fmt.Println("订单1实付金额：", finalPrice(price1, quantity1))
 
-	price1, ok := getPrice("西瓜")
+	price1, err := getPrice("牛奶")
 
-	if !ok {
-		fmt.Println("商品不存在")
+	if err != nil {
+		fmt.Println("获取价格失败：", err)
 		return
 	}
 
